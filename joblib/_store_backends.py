@@ -268,11 +268,6 @@ class StoreBackendMixin(object):
         except:  # noqa: E722
             pass
 
-    def contains_path(self, path:ItemPath):
-        """Check cached function is available in store."""
-        func_path = os.path.join(self.location, *path)
-        return self.object_exists(func_path) # TODO: analyze why function is unkown. Whole function dead code?
-
     def clear_path(self, path:ItemPath):
         """Clear all items with a common path in the store."""
         func_path = os.path.join(self.location, *path)
