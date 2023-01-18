@@ -370,9 +370,7 @@ class StoreBackendMixin(object):
             class_name=self.__class__.__name__, location=self.location)
 
     def filename_for_item(self, path: ItemPath) -> StrPath:
-        """
-            generates the filename (relative to self.location) for the stored item
-        """
+        return 'output.pkl'
 
     def filename_for_metadata(self, path: ItemPath) -> StrPath:
         return 'metadata.json'
@@ -408,7 +406,7 @@ class FileSystemStoreBackend(StoreBackendBase, StoreBackendMixin):
                                          os.path.basename(dirpath))
 
             if is_cache_hash_dir:
-                output_filename = os.path.join(dirpath, self.filename_for_item(path))
+                output_filename = os.path.join(dirpath, self.filename_for_item([]))
                 try:
                     last_access = os.path.getatime(output_filename)
                 except OSError:
