@@ -1,26 +1,30 @@
 """Storage providers backends for Memory caching."""
 
-import re
+import collections
+import datetime
+import io
+import json
+import operator
 import os
 import os.path
-import datetime
-import json
+import re
 import shutil
-import warnings
-import collections
-import operator
 import threading
+import warnings
 from abc import ABCMeta, abstractmethod
+from typing import Any, Callable, List, Mapping, Optional, Sequence, Union
 
-from .backports import concurrency_safe_rename
-from .disk import mkdirp, memstr_to_bytes, rm_subdirs
+from _typeshed import StrPath
+
 from . import numpy_pickle
+from .backports import concurrency_safe_rename
+from .disk import memstr_to_bytes, mkdirp, rm_subdirs
 
 CacheItemInfo = collections.namedtuple('CacheItemInfo',
                                        'path size last_access')
 
 
-def concurrency_safe_write(object_to_write, filename, write_func):
+def concurrency_safe_write(object_to_write: Any, filename:StrPath, write_func:Callable):
     """Writes an object into a unique file in a concurrency-safe way."""
     thread_id = id(threading.current_thread())
     temporary_filename = '{}.thread-{}-pid-{}'.format(
@@ -29,15 +33,23 @@ def concurrency_safe_write(object_to_write, filename, write_func):
 
     return temporary_filename
 
+ObjectToCache = Any
+ItemPath = List[str]
+"""
+Path is a tuple of the function name and the hashed function arguments
+['__main__-c%3A-Users-Ben-Development-datascience-%3Cipython-input-4e2c192497a8%3E\\mydataframe', '9c758c5db8d699eff9c7f6916593e29e']
+"""
+
+Location = StrPath
 
 class StoreBackendBase(metaclass=ABCMeta):
     """Helper Abstract Base Class which defines all methods that
        a StorageBackend must implement."""
 
-    location = None
+    location : Optional[Location] = None
 
     @abstractmethod
-    def _open_item(self, f, mode):
+    def _open_item(self, f:StrPath, mode:Optional[str]) -> io.IOBase:
         """Opens an item on the store and return a file-like object.
 
         This method is private and only used by the StoreBackendMixin object.
@@ -56,7 +68,7 @@ class StoreBackendBase(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def _item_exists(self, location):
+    def _item_exists(self, location:Location ) -> bool:
         """Checks if an item location exists in the store.
 
         This method is private and only used by the StoreBackendMixin object.
@@ -73,7 +85,7 @@ class StoreBackendBase(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def _move_item(self, src, dst):
+    def _move_item(self, src:StrPath , dst:StrPath ) -> None:
         """Moves an item from src to dst in the store.
 
         This method is private and only used by the StoreBackendMixin object.
@@ -87,7 +99,7 @@ class StoreBackendBase(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def create_location(self, location):
+    def create_location(self, location: Location) -> None:
         """Creates a location on the store.
 
         Parameters
@@ -98,7 +110,7 @@ class StoreBackendBase(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def clear_location(self, location):
+    def clear_location(self, location: Location) -> None:
         """Clears a location on the store.
 
         Parameters
@@ -109,7 +121,7 @@ class StoreBackendBase(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def get_items(self):
+    def get_items(self) -> List[CacheItemInfo]:
         """Returns the whole list of items available in the store.
 
         Returns
@@ -119,7 +131,7 @@ class StoreBackendBase(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def configure(self, location, verbose=0, backend_options=dict()):
+    def configure(self, location:Location, verbose:int=0, backend_options:Mapping[str,Any]=dict()):
         """Configures the store.
 
         Parameters
@@ -144,6 +156,26 @@ class StoreBackendMixin(object):
     method has to have the same signature as the builtin open and return a
     file-like object.
     """
+
+    # properties of StoreBackendBase
+    location : StrPath
+    _item_exists: Callable[[StrPath ], bool]
+    create_location: Callable
+    _open_item: Callable[[StrPath,Optional[str]], io.IOBase]
+    clear_location: Callable[[Location], None]
+    _move_item: Callable[[StrPath, StrPath], None]
+    get_items: Callable[[], List[CacheItemInfo]]
+
+    #later implemented by FileSystemStoreBackend.config
+    mmap_mode : Optional[str]
+    compress : Optional[Union[int,bool]]
+    verbose : int
+
+    def assert_location(self, path):
+        item_path = os.path.join(self.location) #, *path)
+        if not self._item_exists(item_path):
+            self.create_location(item_path)
+        return item_path
 
     def load_item(self, path, verbose=1, msg=None):
         """Load an item from the store given its path as a list of
@@ -172,7 +204,7 @@ class StoreBackendMixin(object):
             item = numpy_pickle.load(filename, mmap_mode=mmap_mode)
         return item
 
-    def dump_item(self, path, item, verbose=1):
+    def dump_item(self, path:ItemPath, item, verbose=1):
         """Dump an item in the store at the path given as a list of
            strings."""
         try:
@@ -186,19 +218,19 @@ class StoreBackendMixin(object):
             def write_func(to_write, dest_filename):
                 with self._open_item(dest_filename, "wb") as f:
                     numpy_pickle.dump(to_write, f,
-                                      compress=self.compress)
+                                      compress=int(self.compress or 0))
 
             self._concurrency_safe_write(item, filename, write_func)
         except:  # noqa: E722
             " Race condition in the creation of the directory "
 
-    def clear_item(self, path):
+    def clear_item(self, path:ItemPath):
         """Clear the item at the path, given as a list of strings."""
         item_path = os.path.join(self.location, *path)
         if self._item_exists(item_path):
             self.clear_location(item_path)
 
-    def contains_item(self, path):
+    def contains_item(self, path:ItemPath):
         """Check if there is an item at the path, given as a list of
            strings"""
         item_path = os.path.join(self.location, *path)
@@ -206,12 +238,12 @@ class StoreBackendMixin(object):
 
         return self._item_exists(filename)
 
-    def get_item_info(self, path):
+    def get_item_info(self, path:ItemPath):
         """Return information about item."""
         return {'location': os.path.join(self.location,
                                          *path)}
 
-    def get_metadata(self, path):
+    def get_metadata(self, path:ItemPath):
         """Return actual metadata of an item."""
         try:
             item_path = os.path.join(self.location, *path)
@@ -221,7 +253,7 @@ class StoreBackendMixin(object):
         except:  # noqa: E722
             return {}
 
-    def store_metadata(self, path, metadata):
+    def store_metadata(self, path:ItemPath, metadata):
         """Store metadata of a computation."""
         try:
             item_path = os.path.join(self.location, *path)
@@ -236,18 +268,18 @@ class StoreBackendMixin(object):
         except:  # noqa: E722
             pass
 
-    def contains_path(self, path):
+    def contains_path(self, path:ItemPath):
         """Check cached function is available in store."""
         func_path = os.path.join(self.location, *path)
-        return self.object_exists(func_path)
+        return self.object_exists(func_path) # TODO: analyze why function is unkown. Whole function dead code?
 
-    def clear_path(self, path):
+    def clear_path(self, path:ItemPath):
         """Clear all items with a common path in the store."""
         func_path = os.path.join(self.location, *path)
         if self._item_exists(func_path):
             self.clear_location(func_path)
 
-    def store_cached_func_code(self, path, func_code=None):
+    def store_cached_func_code(self, path:ItemPath, func_code:Any=None):
         """Store the code of the cached function."""
         func_path = os.path.join(self.location, *path)
         if not self._item_exists(func_path):
@@ -258,7 +290,7 @@ class StoreBackendMixin(object):
             with self._open_item(filename, 'wb') as f:
                 f.write(func_code.encode('utf-8'))
 
-    def get_cached_func_code(self, path):
+    def get_cached_func_code(self, path:ItemPath) -> str:
         """Store the code of the cached function."""
         path += ['func_code.py', ]
         filename = os.path.join(self.location, *path)
@@ -268,15 +300,15 @@ class StoreBackendMixin(object):
         except:  # noqa: E722
             raise
 
-    def get_cached_func_info(self, path):
+    def get_cached_func_info(self, path:ItemPath) -> Mapping[str,Any]:
         """Return information related to the cached function if it exists."""
         return {'location': os.path.join(self.location, *path)}
 
-    def clear(self):
+    def clear(self) -> None:
         """Clear the whole store content."""
         self.clear_location(self.location)
 
-    def reduce_store_size(self, bytes_limit):
+    def reduce_store_size(self, bytes_limit:Union[str,int]) -> None:
         """Reduce store size to keep it under the given bytes limit."""
         items_to_delete = self._get_items_to_delete(bytes_limit)
 
@@ -292,7 +324,7 @@ class StoreBackendMixin(object):
                 # the folder already.
                 pass
 
-    def _get_items_to_delete(self, bytes_limit):
+    def _get_items_to_delete(self, bytes_limit:Union[str,int]):
         """Get items to delete to keep the store under a size limit."""
         if isinstance(bytes_limit, str):
             bytes_limit = memstr_to_bytes(bytes_limit)
@@ -320,7 +352,7 @@ class StoreBackendMixin(object):
 
         return items_to_delete
 
-    def _concurrency_safe_write(self, to_write, filename, write_func):
+    def _concurrency_safe_write(self, to_write:ObjectToCache, filename, write_func):
         """Writes an object into a file in a concurrency-safe way."""
         temporary_filename = concurrency_safe_write(to_write,
                                                     filename, write_func)
@@ -350,10 +382,10 @@ class FileSystemStoreBackend(StoreBackendBase, StoreBackendMixin):
         """Create object location on store"""
         mkdirp(location)
 
-    def get_items(self):
+    def get_items(self) -> List[CacheItemInfo]:
         """Returns the whole list of items available in the store."""
         items = []
-
+        if self.location is None: return items
         for dirpath, _, filenames in os.walk(self.location):
             is_cache_hash_dir = re.match('[a-f0-9]{32}',
                                          os.path.basename(dirpath))
