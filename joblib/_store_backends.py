@@ -12,9 +12,9 @@ import shutil
 import threading
 import warnings
 from abc import ABCMeta, abstractmethod
-from typing import Any, Callable, List, Mapping, Optional, Sequence, Union
+from typing import Any, Callable, List, Mapping, Optional, Union, TYPE_CHECKING
 
-from _typeshed import StrPath
+StrPath = str | os.PathLike[str]
 
 from . import numpy_pickle
 from .backports import concurrency_safe_rename
