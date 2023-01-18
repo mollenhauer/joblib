@@ -146,6 +146,23 @@ class StoreBackendBase(metaclass=ABCMeta):
             store backend.
         """
 
+    @abstractmethod
+    def filename_for_item(self, path: ItemPath) -> StrPath:
+        """
+            generates the filename (relative to self.location) for the stored item
+        """
+
+    @abstractmethod
+    def filename_for_metadata(self, path: ItemPath) -> StrPath:
+        """
+            generates the filename (relative to self.location) for the metadata
+        """
+
+    @abstractmethod
+    def filename_for_functioncode(self, path: ItemPath) -> StrPath:
+        """
+            generates the filename (relative to self.location) for the function code
+        """
 
 class StoreBackendMixin(object):
     """Class providing all logic for managing the store in a generic way.
@@ -191,7 +208,7 @@ class StoreBackendMixin(object):
         mmap_mode = (None if not hasattr(self, 'mmap_mode')
                      else self.mmap_mode)
 
-        filename = os.path.join(full_path, 'output.pkl')
+        filename = os.path.join(full_path, self.filename_for_item(path))
         if not self._item_exists(filename):
             raise KeyError("Non-existing item (may have been "
                            "cleared).\nFile %s does not exist" % filename)
@@ -211,7 +228,7 @@ class StoreBackendMixin(object):
             item_path = os.path.join(self.location, *path)
             if not self._item_exists(item_path):
                 self.create_location(item_path)
-            filename = os.path.join(item_path, 'output.pkl')
+            filename = os.path.join(item_path, self.filename_for_item(path))
             if verbose > 10:
                 print('Persisting in %s' % item_path)
 
@@ -234,7 +251,7 @@ class StoreBackendMixin(object):
         """Check if there is an item at the path, given as a list of
            strings"""
         item_path = os.path.join(self.location, *path)
-        filename = os.path.join(item_path, 'output.pkl')
+        filename = os.path.join(item_path, self.filename_for_item(path))
 
         return self._item_exists(filename)
 
@@ -247,7 +264,7 @@ class StoreBackendMixin(object):
         """Return actual metadata of an item."""
         try:
             item_path = os.path.join(self.location, *path)
-            filename = os.path.join(item_path, 'metadata.json')
+            filename = os.path.join(item_path, self.filename_for_metadata(path))
             with self._open_item(filename, 'rb') as f:
                 return json.loads(f.read().decode('utf-8'))
         except:  # noqa: E722
@@ -281,7 +298,7 @@ class StoreBackendMixin(object):
             self.create_location(func_path)
 
         if func_code is not None:
-            filename = os.path.join(func_path, "func_code.py")
+            filename = os.path.join(func_path, self.filename_for_functioncode(path))
             with self._open_item(filename, 'wb') as f:
                 f.write(func_code.encode('utf-8'))
 
@@ -358,6 +375,17 @@ class StoreBackendMixin(object):
         return '{class_name}(location="{location}")'.format(
             class_name=self.__class__.__name__, location=self.location)
 
+    def filename_for_item(self, path: ItemPath) -> StrPath:
+        """
+            generates the filename (relative to self.location) for the stored item
+        """
+
+    def filename_for_metadata(self, path: ItemPath) -> StrPath:
+        return 'metadata.json'
+
+    def filename_for_functioncode(self, path: ItemPath) -> StrPath:
+        return 'func_code.py'
+
 
 class FileSystemStoreBackend(StoreBackendBase, StoreBackendMixin):
     """A StoreBackend used with local or network file systems."""
@@ -386,7 +414,7 @@ class FileSystemStoreBackend(StoreBackendBase, StoreBackendMixin):
                                          os.path.basename(dirpath))
 
             if is_cache_hash_dir:
-                output_filename = os.path.join(dirpath, 'output.pkl')
+                output_filename = os.path.join(dirpath, self.filename_for_item(path))
                 try:
                     last_access = os.path.getatime(output_filename)
                 except OSError:
