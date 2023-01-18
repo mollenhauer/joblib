@@ -188,12 +188,6 @@ class StoreBackendMixin(object):
     compress : Optional[Union[int,bool]]
     verbose : int
 
-    def assert_location(self, path):
-        item_path = os.path.join(self.location) #, *path)
-        if not self._item_exists(item_path):
-            self.create_location(item_path)
-        return item_path
-
     def load_item(self, path, verbose=1, msg=None):
         """Load an item from the store given its path as a list of
            strings."""
